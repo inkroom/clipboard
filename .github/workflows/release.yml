@@ -1,0 +1,125 @@
+name: release
+
+on:
+  push:
+    branches: ['master']
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - '.dockerignore'
+      - 'build.sh'
+  workflow_dispatch:
+env:
+  RUST_VERSION: 1.90.0
+jobs:
+  linux-arm:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Arm Docker image
+        uses: docker/build-push-action@v5
+        id: arm_image_id
+        with:
+          no-cache: true
+          context: .
+          file: .github/workflows/Dockerfile
+          load: true
+          platforms: linux/arm64
+          push: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          build-args: |
+            RUST_VERSION=${{ env.RUST_VERSION }}
+      - name: Extract Docker Image
+        id: ex
+        run: |
+          arm_image_id="${{ steps.arm_image_id.outputs.imageid }}"
+          arm_image_id=${arm_image_id:7}
+          mkdir arm
+          cd arm
+          docker save -o mini.tar $arm_image_id
+          tar xvf mini.tar
+          cat manifest.json
+          tar xvf $(jq --raw-output '.[0].Layers[0]' manifest.json)
+          mv app/clip app/clip-linux-arm
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-linux-arm
+          path: arm/app/*
+  mac-m1:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Rust
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+         toolchain: ${{ env.RUST_VERSION }}
+      - name: Build
+        run: |
+          mkdir out
+          cargo build --release && mv target/release/clip ./out/clip-mac-arm
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+           name: app-mac-arm
+           path: out/*
+  release:
+    runs-on: ubuntu-20.04
+    needs: ["mac-m1","linux-arm"]
+    permissions:
+        contents: write
+        packages: write
+    steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+        - name: Download artifacts
+          uses: actions/download-artifact@v4
+          with:
+            merge-multiple: true
+            pattern: app-*
+            path: app/
+        - name: Release Ready
+          id: ready
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: |
+            new_tag=$(date +%Y%m%d)
+            now_tag=$(curl -sSf https://api.github.com/repos/inkroom/clip/releases/latest | jq --raw-output '.tag_name')
+            if [[ "$new_tag" = "$now_tag" ]]; then
+              echo "delete $now_tag"
+              gh release delete $now_tag
+              now_tag=$(curl -sSf https://api.github.com/repos/inkroom/clip/releases | jq --raw-output '.[0].tag_name')
+            fi
+            commit=$(git rev-list -n 1 $now_tag)
+            echo "$commit"
+
+            temp=$(git --no-pager tag | grep $new_tag || echo "")
+            if [[ "$temp" = "$new_tag" ]]; then
+                echo "delete remote tag $new_tag"
+                git push origin --delete $new_tag
+                git tag -d $new_tag
+            fi
+            git tag $new_tag
+            echo "create tag $new_tag"
+            git push origin $new_tag
+            # commit=$(git --no-pager log --pretty=format:"%H" | grep -B 1 $commit | head -n 1)
+            echo "after-$commit"
+            msg=$(git --no-pager log --pretty=format:"- [%s](https://github.com/${{ github.repository}}/commit/%H)" $commit..HEAD)
+            echo "$msg" > body.md
+            echo "tag=$new_tag" >> $GITHUB_OUTPUT
+            # 如果直接指向master，release会落后一个commit
+            # gh release create -n "$msg" --target $new_tag $(date +%Y%m%d) ./app/*
+        - name: Create Release
+          uses: ncipollo/release-action@v1
+          env:
+            GH_TOKEN: ${{ github.token }}
+          with:
+            artifacts: "app/*"
+            bodyFile: "body.md"
+            tag: ${{ steps.ready.outputs.tag }}
