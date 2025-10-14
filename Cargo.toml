@@ -8,8 +8,5 @@ clipboard-rs = "0.3.0"
 eframe = "0.32.3"
 egui_extras = {version="0.32.3",  features = ["default", "image"] }
 
-env_logger = { version = "0.10", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
+
 image = "0.25.8"
