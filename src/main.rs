@@ -5,9 +5,7 @@ use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext,
     RustImageData, common::RustImage,
 };
-use eframe::{
-    egui::{self, ImageSource, load::Bytes},
-};
+use eframe::egui::{self, ImageSource, load::Bytes};
 use std::{
     sync::{
         Arc, Mutex,
@@ -102,9 +100,8 @@ impl ClipboardHandler for Manager {
 }
 
 fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([400.0, 500.0]),
         ..Default::default()
     };
 
@@ -140,7 +137,7 @@ struct Data {
 struct ClipboardApp {
     data: Arc<Mutex<Data>>,
     ctx: ClipboardContext,
-
+    is_top: bool,
     _shutdown: clipboard_rs::WatcherShutdown,
 }
 
@@ -152,7 +149,8 @@ impl ClipboardApp {
         let res = Self {
             data: Arc::clone(&c),
             ctx: ClipboardContext::new().unwrap(),
-            _shutdown:shutdown,
+            _shutdown: shutdown,
+            is_top: false,
         };
         thread::spawn(move || {
             loop {
@@ -181,7 +179,23 @@ impl eframe::App for ClipboardApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.data.lock() {
                 Ok(data) => {
-                    ui.heading("Clipboard");
+                    ui.horizontal(|ui| {
+                        ui.heading("Clipboard");
+                        if ui.button("top").clicked() {
+                            let mut flag = self.is_top;
+                            flag = !flag;
+                            self.is_top = flag;
+                            if flag {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                                    egui::WindowLevel::AlwaysOnTop,
+                                ));
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                                    egui::WindowLevel::Normal,
+                                ));
+                            }
+                        }
+                    });
 
                     for ele in data.clip.iter().rev() {
                         match ele {
