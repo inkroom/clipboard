@@ -7,6 +7,7 @@ use clipboard_rs::{
 };
 use eframe::egui::{self, ImageSource, load::Bytes};
 use std::{
+    ops::Deref,
     sync::{
         Arc, Mutex,
         mpsc::{Receiver, Sender},
@@ -127,7 +128,11 @@ fn main() -> eframe::Result {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
 
-            Ok(Box::new(ClipboardApp::default(rx, watcher_shutdown)))
+            Ok(Box::new(ClipboardApp::default(
+                rx,
+                watcher_shutdown,
+                &cc.egui_ctx,
+            )))
         }),
     )
 }
@@ -142,7 +147,11 @@ struct ClipboardApp {
 }
 
 impl ClipboardApp {
-    fn default(rx: Receiver<Clip>, shutdown: clipboard_rs::WatcherShutdown) -> Self {
+    fn default(
+        rx: Receiver<Clip>,
+        shutdown: clipboard_rs::WatcherShutdown,
+        cc: &egui::Context,
+    ) -> Self {
         let c = Arc::new(Mutex::new(Data { clip: Vec::new() }));
         // v.start(rx);
         let t = Arc::clone(&c);
@@ -154,23 +163,93 @@ impl ClipboardApp {
         };
         thread::spawn(move || {
             loop {
-                let r = rx.recv().unwrap();
-                println!("收到消息");
-                match t.lock() {
-                    Ok(mut s) => {
-                        if !s.clip.iter().any(|f| r == f) {
-                            s.clip.push(r);
-                            println!("修改");
+                match rx.recv() {
+                    Ok(r) => {
+                        println!("收到消息");
+                        match t.lock() {
+                            Ok(mut s) => {
+                                if !s.clip.iter().any(|f| r == f) {
+                                    s.clip.push(r);
+                                    println!("修改");
+                                }
+                            }
+                            Err(_) => {
+                                eprintln!("lock 失败");
+                            }
                         }
                     }
-                    Err(_) => {
-                        println!("lock 失败");
+                    Err(e) => {
+                        // 退出时一定会有一条
+                        eprintln!("recv : {:?}", e);
+                        break;
                     }
                 }
             }
-            // self.name= "OK".to_string();
         });
+        res.add_font(cc);
         res
+    }
+
+    fn add_font(&self, cc: &egui::Context) {
+        let fs = font_kit::source::SystemSource::new();
+
+        // 遍历所有系统字体
+        for handle in fs.all_families().unwrap() {
+            if let Ok(f) = fs.select_family_by_name(&handle)
+                && let Ok(font) = f.fonts()[0].load()
+            {
+                // 检查是否包含中文字符（CJK Unified Ideographs范围）
+                if let Some(_) = font.glyph_for_char('中')
+                    && let Some(data) = font.copy_font_data()
+                {
+                    let name = font.full_name();
+                    println!("支持中文的字体: {:?} : {}", f,name);
+                    cc.add_font(egui::epaint::text::FontInsert::new(
+                        name.as_str(),
+                        egui::FontData::from_owned(data.deref().clone()),
+                        // egui::FontData::from_static(include_bytes!("../wqy-zenhei.ttc")),
+                        vec![
+                            egui::epaint::text::InsertFontFamily {
+                                family: egui::FontFamily::Proportional,
+                                priority: egui::epaint::text::FontPriority::Highest,
+                            },
+                            egui::epaint::text::InsertFontFamily {
+                                family: egui::FontFamily::Monospace,
+                                priority: egui::epaint::text::FontPriority::Lowest,
+                            },
+                        ],
+                    ));
+                    break;
+                }
+            }
+        }
+
+        if let Ok(h) = fs.select_best_match(
+            &[
+                font_kit::family_name::FamilyName::SansSerif,
+                font_kit::family_name::FamilyName::Serif,
+            ],
+            &font_kit::properties::Properties::new(),
+        ) && let Ok(f) = h.load()
+            && let Some(data) = f.copy_font_data()
+        {
+            // println!("找到字体,{}",f.);
+            cc.add_font(egui::epaint::text::FontInsert::new(
+                "my_font",
+                egui::FontData::from_owned(data.deref().clone()),
+                // egui::FontData::from_static(include_bytes!("../wqy-zenhei.ttc")),
+                vec![
+                    egui::epaint::text::InsertFontFamily {
+                        family: egui::FontFamily::Proportional,
+                        priority: egui::epaint::text::FontPriority::Highest,
+                    },
+                    egui::epaint::text::InsertFontFamily {
+                        family: egui::FontFamily::Monospace,
+                        priority: egui::epaint::text::FontPriority::Lowest,
+                    },
+                ],
+            ));
+        }
     }
 }
 
@@ -178,7 +257,7 @@ impl eframe::App for ClipboardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.data.lock() {
-                Ok(data) => {
+                Ok(mut data) => {
                     ui.horizontal(|ui| {
                         ui.heading("Clipboard");
                         if ui.button("top").clicked() {
@@ -196,14 +275,17 @@ impl eframe::App for ClipboardApp {
                             }
                         }
                     });
-
-                    for ele in data.clip.iter().rev() {
+                    let mut removed_index = None;
+                    for (index, ele) in data.clip.iter().enumerate().rev() {
                         match ele {
                             Clip::Text(t) => {
                                 ui.horizontal(|ui| {
                                     if ui.button("Copy").clicked() {
                                         println!("copy {}", t);
                                         let _ = self.ctx.set_text(t.clone());
+                                    }
+                                    if ui.link("rm").clicked() {
+                                        removed_index = Some(index);
                                     }
                                     ui.label(format!("{}", t));
                                 });
@@ -216,6 +298,9 @@ impl eframe::App for ClipboardApp {
                                             RustImageData::from_bytes(d.as_slice()).unwrap(),
                                         );
                                     }
+                                    if ui.link("rm").clicked() {
+                                        removed_index = Some(index);
+                                    }
                                     ui.image(ImageSource::Bytes {
                                         uri: std::borrow::Cow::Borrowed("bytes://1.jpg"),
                                         bytes: Bytes::from(d.clone()),
@@ -223,6 +308,9 @@ impl eframe::App for ClipboardApp {
                                 });
                             }
                         }
+                    }
+                    if let Some(index) = removed_index {
+                        data.clip.remove(index);
                     }
                 }
                 Err(_) => {
