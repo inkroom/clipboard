@@ -7,6 +7,7 @@ use clipboard_rs::{
 };
 use eframe::egui::{self, ImageSource, load::Bytes};
 use std::{
+    fmt::format,
     ops::Deref,
     sync::{
         Arc, Mutex,
@@ -203,7 +204,15 @@ impl ClipboardApp {
                     && let Some(data) = font.copy_font_data()
                 {
                     let name = font.full_name();
-                    println!("支持中文的字体: {:?} : {}", f,name);
+                    println!(
+                        "支持中文的字体: {} : {}",
+                        match &f.fonts()[0] {
+                            font_kit::handle::Handle::Path { path, font_index: _ } =>
+                                format!("{}", path.display()),
+                            font_kit::handle::Handle::Memory { bytes: _, font_index: _ } => String::new(),
+                        },
+                        name
+                    );
                     cc.add_font(egui::epaint::text::FontInsert::new(
                         name.as_str(),
                         egui::FontData::from_owned(data.deref().clone()),
