@@ -139,6 +139,8 @@ fn main() -> eframe::Result {
 }
 struct Data {
     clip: Vec<Clip>,
+    /// 用于触发重绘
+    repaint: egui::Context,
 }
 struct ClipboardApp {
     data: Arc<Mutex<Data>>,
@@ -153,7 +155,10 @@ impl ClipboardApp {
         shutdown: clipboard_rs::WatcherShutdown,
         cc: &egui::Context,
     ) -> Self {
-        let c = Arc::new(Mutex::new(Data { clip: Vec::new() }));
+        let c = Arc::new(Mutex::new(Data {
+            clip: Vec::new(),
+            repaint: cc.clone(),
+        }));
         // v.start(rx);
         let t = Arc::clone(&c);
         let res = Self {
@@ -172,6 +177,7 @@ impl ClipboardApp {
                                 if !s.clip.iter().any(|f| r == f) {
                                     s.clip.push(r);
                                     println!("修改");
+                                    s.repaint.request_repaint();
                                 }
                             }
                             Err(_) => {
@@ -207,9 +213,14 @@ impl ClipboardApp {
                     println!(
                         "支持中文的字体: {} : {}",
                         match &f.fonts()[0] {
-                            font_kit::handle::Handle::Path { path, font_index: _ } =>
-                                format!("{}", path.display()),
-                            font_kit::handle::Handle::Memory { bytes: _, font_index: _ } => String::new(),
+                            font_kit::handle::Handle::Path {
+                                path,
+                                font_index: _,
+                            } => format!("{}", path.display()),
+                            font_kit::handle::Handle::Memory {
+                                bytes: _,
+                                font_index: _,
+                            } => String::new(),
                         },
                         name
                     );
