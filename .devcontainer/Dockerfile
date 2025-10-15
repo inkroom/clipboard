@@ -56,4 +56,4 @@ RUN echo "export CARGO_HOME=${CARGO_HOME}" >> /etc/profile \
 ENV VNCNAME "novel"
 RUN sed -i "s@-fg@-fg -desktop ${VNCNAME}@g" /app/tiger.sh
 RUN sh /app/scripts/prepare_firefox_ppa.sh && apt update -y && apt install -y firefox
-RUN apt install -y gcc g++ make pkg-config libssl-dev unzip libxkbcommon-dev libxkbcommon-x11-dev
+RUN apt install -y gcc g++ make pkg-config libssl-dev unzip libxkbcommon-dev libxkbcommon-x11-dev libfreetype6-dev libfontconfig1-dev

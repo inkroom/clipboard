@@ -4,7 +4,7 @@ RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debi
 
 #FROM registry.gitlab.com/rust_musl_docker/image:stable-latest as m
 WORKDIR /app
-RUN arch && apt install -y musl-tools && rustc --version && rustup target add $(arch)-unknown-linux-musl 
+RUN arch && apt install -y musl-tools libfreetype6-dev libfontconfig1-dev && rustc --version && rustup target add $(arch)-unknown-linux-musl 
 COPY . /app
 RUN cargo build --release --config source.crates-io.replace-with=\"mirror\" \
     --config source.mirror.registry=\"sparse+https://mirrors.ustc.edu.cn/crates.io-index/\" \

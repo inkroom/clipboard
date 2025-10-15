@@ -70,7 +70,7 @@ jobs:
            name: app-mac-arm
            path: out/*
   release:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: ["mac-m1","linux-arm"]
     permissions:
         contents: write
