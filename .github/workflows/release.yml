@@ -38,7 +38,7 @@ jobs:
            path: out/*
   release:
     runs-on: ubuntu-22.04
-    needs: ["mac-m1","linux-arm"]
+    needs: ["mac-m1"]
     permissions:
         contents: write
         packages: write
