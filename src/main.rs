@@ -5,7 +5,7 @@ use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext,
     RustImageData, common::RustImage,
 };
-use eframe::egui::{self, ImageSource, load::Bytes};
+use eframe::egui::{self, ImageSource, ScrollArea, load::Bytes};
 use std::{
     fmt::format,
     ops::Deref,
@@ -295,43 +295,57 @@ impl eframe::App for ClipboardApp {
                             }
                         }
                     });
-                    let mut removed_index = None;
-                    for (index, ele) in data.clip.iter().enumerate().rev() {
-                        match ele {
-                            Clip::Text(t) => {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Copy").clicked() {
-                                        println!("copy {}", t);
-                                        let _ = self.ctx.set_text(t.clone());
+
+                    // 滚动
+                    ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .scroll_bar_visibility(
+                            egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+                        )
+                        .show(ui, |ui| {
+                            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true), |ui| {
+                                let mut removed_index = None;
+                                for (index, ele) in data.clip.iter().enumerate().rev() {
+                                    match ele {
+                                        Clip::Text(t) => {
+                                            ui.horizontal(|ui| {
+                                                if ui.button("Copy").clicked() {
+                                                    println!("copy {}", t);
+                                                    let _ = self.ctx.set_text(t.clone());
+                                                }
+                                                if ui.link("rm").clicked() {
+                                                    removed_index = Some(index);
+                                                }
+                                                ui.label(format!("{}", t));
+                                            });
+                                        }
+                                        Clip::Img(d) => {
+                                            ui.horizontal(|ui| {
+                                                if ui.button("Copy").clicked() {
+                                                    println!("copy img",);
+                                                    let _ = self.ctx.set_image(
+                                                        RustImageData::from_bytes(d.as_slice())
+                                                            .unwrap(),
+                                                    );
+                                                }
+                                                if ui.link("rm").clicked() {
+                                                    removed_index = Some(index);
+                                                }
+                                                ui.image(ImageSource::Bytes {
+                                                    uri: std::borrow::Cow::Borrowed(
+                                                        "bytes://1.jpg",
+                                                    ),
+                                                    bytes: Bytes::from(d.clone()),
+                                                });
+                                            });
+                                        }
                                     }
-                                    if ui.link("rm").clicked() {
-                                        removed_index = Some(index);
-                                    }
-                                    ui.label(format!("{}", t));
-                                });
-                            }
-                            Clip::Img(d) => {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Copy").clicked() {
-                                        println!("copy img",);
-                                        let _ = self.ctx.set_image(
-                                            RustImageData::from_bytes(d.as_slice()).unwrap(),
-                                        );
-                                    }
-                                    if ui.link("rm").clicked() {
-                                        removed_index = Some(index);
-                                    }
-                                    ui.image(ImageSource::Bytes {
-                                        uri: std::borrow::Cow::Borrowed("bytes://1.jpg"),
-                                        bytes: Bytes::from(d.clone()),
-                                    });
-                                });
-                            }
-                        }
-                    }
-                    if let Some(index) = removed_index {
-                        data.clip.remove(index);
-                    }
+                                }
+                                if let Some(index) = removed_index {
+                                    data.clip.remove(index);
+                                }
+                            });
+                        });
                 }
                 Err(_) => {
                     println!("update fial");

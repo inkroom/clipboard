@@ -12,46 +12,6 @@ on:
 env:
   RUST_VERSION: 1.90.0
 jobs:
-  linux-arm:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build Arm Docker image
-        uses: docker/build-push-action@v5
-        id: arm_image_id
-        with:
-          no-cache: true
-          context: .
-          file: .github/workflows/Dockerfile
-          load: true
-          platforms: linux/arm64
-          push: false
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          build-args: |
-            RUST_VERSION=${{ env.RUST_VERSION }}
-      - name: Extract Docker Image
-        id: ex
-        run: |
-          arm_image_id="${{ steps.arm_image_id.outputs.imageid }}"
-          arm_image_id=${arm_image_id:7}
-          mkdir arm
-          mkdir out
-          cd arm
-          docker save -o mini.tar $arm_image_id
-          tar xvf mini.tar
-          cat manifest.json
-          tar xvf $(jq --raw-output '.[0].Layers[0]' manifest.json)
-          mv app/clip ../out/clip-linux-arm
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-linux-arm
-          path: out/*
   mac-m1:
     runs-on: macos-14
     steps:
@@ -72,7 +32,7 @@ jobs:
            path: out/*
   release:
     runs-on: ubuntu-22.04
-    needs: ["mac-m1","linux-arm"]
+    needs: ["mac-m1"]
     permissions:
         contents: write
         packages: write
