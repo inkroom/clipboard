@@ -27,7 +27,7 @@ jobs:
           cargo build --release && mv target/release/clip ./out/clip-mac-arm
       - name: Linux
         run: |
-          brew install FiloSottile/musl-cross/musl-cross --with-arm-hf
+          brew install FiloSottile/musl-cross/musl-cross
           rustup target add armv7-unknown-linux-musleabihf
           argo build --target armv7-unknown-linux-musleabihf --release
           cp target/armv7-unknown-linux-musleabihf/release/clip ./out/clip-linux-arm
