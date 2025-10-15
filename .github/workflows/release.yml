@@ -51,11 +51,11 @@ jobs:
             GH_TOKEN: ${{ github.token }}
           run: |
             new_tag=$(date +%Y%m%d)
-            now_tag=$(curl -sSf https://api.github.com/repos/inkroom/${{ github.repository}}/releases/latest | jq --raw-output '.tag_name')
+            now_tag=$(curl -sSf https://api.github.com/repos/${{ github.repository}}/releases/latest | jq --raw-output '.tag_name')
             if [[ "$new_tag" = "$now_tag" ]]; then
               echo "delete $now_tag"
               gh release delete $now_tag
-              now_tag=$(curl -sSf https://api.github.com/repos/inkroom/${{ github.repository}}/releases | jq --raw-output '.[0].tag_name')
+              now_tag=$(curl -sSf https://api.github.com/repos/${{ github.repository}}/releases | jq --raw-output '.[0].tag_name')
             fi
             commit=$(git rev-list -n 1 $now_tag)
             echo "$commit"
