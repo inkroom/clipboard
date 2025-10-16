@@ -11,3 +11,4 @@ font-kit = "0.14.3"
 
 
 image = "0.25.8"
+tray-icon = "0.21.1"

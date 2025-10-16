@@ -19,6 +19,7 @@ use std::{
 enum Clip {
     Text(String),
     Img(Vec<u8>),
+    Quit,
 }
 
 impl PartialEq<&Clip> for Clip {
@@ -34,24 +35,20 @@ impl PartialEq<&Clip> for Clip {
             Clip::Img(_) => {
                 return false;
             }
+            Clip::Quit => {
+                if let Clip::Quit = other {
+                    true
+                } else {
+                    false
+                }
+            }
         }
     }
 }
 
 impl PartialEq<Clip> for Clip {
     fn eq(&self, other: &Clip) -> bool {
-        match self {
-            Clip::Text(t) => {
-                if let Clip::Text(o) = other {
-                    o == t
-                } else {
-                    false
-                }
-            }
-            Clip::Img(_) => {
-                return false;
-            }
-        }
+        self == &other
     }
 }
 
@@ -64,6 +61,18 @@ impl Manager {
     pub fn new(tx: Sender<Clip>) -> Self {
         let ctx = ClipboardContext::new().unwrap();
         Manager { ctx, tx }
+    }
+
+    fn start(self) -> clipboard_rs::WatcherShutdown {
+        let mut watcher = ClipboardWatcherContext::new().unwrap();
+
+        let watcher_shutdown: clipboard_rs::WatcherShutdown =
+            watcher.add_handler(self).get_shutdown_channel();
+
+        thread::spawn(move || {
+            watcher.start_watch();
+        });
+        watcher_shutdown
     }
 }
 impl ClipboardHandler for Manager {
@@ -84,24 +93,41 @@ impl ClipboardHandler for Manager {
 
         if let Ok(img) = self.ctx.get_image()
             && !img.is_empty()
+            && let Ok(data) = img.to_jpeg()
         {
-            let mut w = std::io::Cursor::new(Vec::new());
-            if let Ok(_) = img.get_dynamic_image().inspect(|f| {
-                let _ = f.write_to(&mut w, image::ImageFormat::Jpeg);
-            }) {
-                let data = w.into_inner();
-                match self.tx.send(Clip::Img(data)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("send fail {:?}", e)
-                    }
+            match self.tx.send(Clip::Img(data.get_bytes().to_vec())) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("send fail {:?}", e)
                 }
             };
         }
     }
 }
-
+fn load_icon() -> tray_icon::Icon {
+    let (icon_rgba, icon_width, icon_height) = {
+        let b = include_bytes!("favicon.ico");
+        let image = image::load_from_memory(b.as_slice())
+            .expect("Failed to open icon path")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to open icon")
+}
 fn main() -> eframe::Result {
+    use tray_icon::{
+        TrayIconBuilder,
+        menu::{Menu, Submenu},
+    };
+
+    let icon = load_icon();
+    #[cfg(not(target_os = "linux"))]
+    let mut _tray_icon = std::rc::Rc::new(std::cell::RefCell::new(None));
+    #[cfg(not(target_os = "linux"))]
+    let tray_c = _tray_icon.clone();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([400.0, 500.0]),
         ..Default::default()
@@ -110,22 +136,18 @@ fn main() -> eframe::Result {
     // 消息
     let (tx, rx) = std::sync::mpsc::channel();
 
-    let manager = Manager::new(tx);
-
-    let mut watcher = ClipboardWatcherContext::new().unwrap();
-
-    let watcher_shutdown: clipboard_rs::WatcherShutdown =
-        watcher.add_handler(manager).get_shutdown_channel();
-
-    thread::spawn(move || {
-        watcher.start_watch();
-    });
-
-    println!("egui");
+    let manager = Manager::new(tx.clone());
+    let watcher_shutdown = manager.start();
     eframe::run_native(
         "Clip",
         options,
         Box::new(|cc| {
+            #[cfg(not(target_os = "linux"))]
+            {
+                tray_c
+                    .borrow_mut()
+                    .replace(TrayIconBuilder::new().with_icon(icon).build().unwrap());
+            }
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
 
@@ -133,20 +155,48 @@ fn main() -> eframe::Result {
                 rx,
                 watcher_shutdown,
                 &cc.egui_ctx,
+                tx,
             )))
         }),
     )
 }
 struct Data {
     clip: Vec<Clip>,
-    /// 用于触发重绘
-    repaint: egui::Context,
+    window_visble: bool,
+    is_top: bool,
+    /// 用于操作窗口
+    ctx: egui::Context,
 }
+
+impl Data {
+    fn switch_visible(&mut self) {
+        self.window_visble = !self.window_visble;
+        self.ctx
+            .send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visble));
+    }
+    fn switch_top(&mut self) {
+        let mut flag = self.is_top;
+        flag = !flag;
+        self.is_top = flag;
+        if flag {
+            self.ctx
+                .send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::AlwaysOnTop,
+                ));
+        } else {
+            self.ctx
+                .send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::Normal,
+                ));
+        }
+    }
+}
+
 struct ClipboardApp {
     data: Arc<Mutex<Data>>,
     ctx: ClipboardContext,
-    is_top: bool,
     _shutdown: clipboard_rs::WatcherShutdown,
+    sender: Sender<Clip>,
 }
 
 impl ClipboardApp {
@@ -154,30 +204,45 @@ impl ClipboardApp {
         rx: Receiver<Clip>,
         shutdown: clipboard_rs::WatcherShutdown,
         cc: &egui::Context,
+        sender: Sender<Clip>,
     ) -> Self {
         let c = Arc::new(Mutex::new(Data {
+            window_visble: true,
             clip: Vec::new(),
-            repaint: cc.clone(),
+            ctx: cc.clone(),
+            is_top: false,
         }));
         // v.start(rx);
-        let t = Arc::clone(&c);
         let res = Self {
             data: Arc::clone(&c),
             ctx: ClipboardContext::new().unwrap(),
             _shutdown: shutdown,
-            is_top: false,
+            sender,
         };
+
+        res.add_font(cc);
+        res.clip_msg_listen(rx, Arc::clone(&c));
+        res.tray_listen(Arc::clone(&c));
+        res
+    }
+
+    fn clip_msg_listen(&self, rx: Receiver<Clip>, data: Arc<Mutex<Data>>) {
         thread::spawn(move || {
             loop {
                 match rx.recv() {
+                    Ok(Clip::Quit) => {
+                        // 退出
+                        println!("quit msg listen");
+                        break;
+                    }
                     Ok(r) => {
                         println!("收到消息");
-                        match t.lock() {
+                        match data.lock() {
                             Ok(mut s) => {
                                 if !s.clip.iter().any(|f| r == f) {
                                     s.clip.push(r);
                                     println!("修改");
-                                    s.repaint.request_repaint();
+                                    s.ctx.request_repaint();
                                 }
                             }
                             Err(_) => {
@@ -193,8 +258,47 @@ impl ClipboardApp {
                 }
             }
         });
-        res.add_font(cc);
-        res
+    }
+
+    fn tray_listen(&self, data: Arc<Mutex<Data>>) {
+        #[cfg(not(target_os = "linux"))]
+        thread::spawn(move || {
+            use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
+
+            let rev = TrayIconEvent::receiver();
+            loop {
+                if let Ok(event) = rev.recv() {
+                    match event {
+                        TrayIconEvent::Click {
+                            id: _,
+                            position: _,
+                            rect: _,
+                            button,
+                            button_state,
+                        } => {
+                            if MouseButtonState::Up == button_state {
+                                match data.lock() {
+                                    Ok(mut s) => {
+                                        if MouseButton::Right == button {
+                                            // 切换置顶
+                                            s.switch_top();
+                                            s.window_visble = false;
+                                            s.switch_visible();
+                                        } else {
+                                            s.switch_visible();
+                                        }
+                                    }
+                                    Err(_) => {
+                                        eprintln!("lock 失败2");
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
     }
 
     fn add_font(&self, cc: &egui::Context) {
@@ -243,32 +347,14 @@ impl ClipboardApp {
                 }
             }
         }
+    }
 
-        if let Ok(h) = fs.select_best_match(
-            &[
-                font_kit::family_name::FamilyName::SansSerif,
-                font_kit::family_name::FamilyName::Serif,
-            ],
-            &font_kit::properties::Properties::new(),
-        ) && let Ok(f) = h.load()
-            && let Some(data) = f.copy_font_data()
-        {
-            // println!("找到字体,{}",f.);
-            cc.add_font(egui::epaint::text::FontInsert::new(
-                "my_font",
-                egui::FontData::from_owned(data.deref().clone()),
-                // egui::FontData::from_static(include_bytes!("../wqy-zenhei.ttc")),
-                vec![
-                    egui::epaint::text::InsertFontFamily {
-                        family: egui::FontFamily::Proportional,
-                        priority: egui::epaint::text::FontPriority::Highest,
-                    },
-                    egui::epaint::text::InsertFontFamily {
-                        family: egui::FontFamily::Monospace,
-                        priority: egui::epaint::text::FontPriority::Lowest,
-                    },
-                ],
-            ));
+    fn switch_top(&mut self, _ctx: &egui::Context) {
+        match self.data.lock() {
+            Ok(mut v) => {
+                v.switch_top();
+            }
+            Err(_) => {}
         }
     }
 }
@@ -276,23 +362,20 @@ impl ClipboardApp {
 impl eframe::App for ClipboardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            // 响应退出
+            if ctx.input(|i| i.viewport().close_requested()) {
+                let _ = self.sender.send(Clip::Quit);
+            }
+            let mut sw = false;
             match self.data.lock() {
                 Ok(mut data) => {
+                    if !data.window_visble {
+                        return;
+                    }
                     ui.horizontal(|ui| {
                         ui.heading("Clipboard");
                         if ui.button("top").clicked() {
-                            let mut flag = self.is_top;
-                            flag = !flag;
-                            self.is_top = flag;
-                            if flag {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
-                                    egui::WindowLevel::AlwaysOnTop,
-                                ));
-                            } else {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
-                                    egui::WindowLevel::Normal,
-                                ));
-                            }
+                            sw = true;
                         }
                     });
 
@@ -300,60 +383,64 @@ impl eframe::App for ClipboardApp {
                     ScrollArea::vertical()
                         .auto_shrink(false)
                         .scroll_bar_visibility(
-                            egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+                            egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
                         )
                         .show(ui, |ui| {
-                            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true), |ui| {
-                                let mut removed_index = None;
-                                for (index, ele) in data.clip.iter().enumerate().rev() {
-                                    match ele {
-                                        Clip::Text(t) => {
-                                            ui.horizontal(|ui| {
-                                                if ui.button("Copy").clicked() {
-                                                    println!("copy {}", t);
-                                                    let _ = self.ctx.set_text(t.clone());
-                                                }
-                                                if ui.link("rm").clicked() {
-                                                    removed_index = Some(index);
-                                                }
-                                                ui.label(format!("{}", t));
-                                            });
-                                        }
-                                        Clip::Img(d) => {
-                                            ui.horizontal(|ui| {
-                                                if ui.button("Copy").clicked() {
-                                                    println!("copy img",);
-                                                    let _ = self.ctx.set_image(
-                                                        RustImageData::from_bytes(d.as_slice())
-                                                            .unwrap(),
-                                                    );
-                                                }
-                                                if ui.link("rm").clicked() {
-                                                    removed_index = Some(index);
-                                                }
-                                                ui.image(ImageSource::Bytes {
-                                                    uri: std::borrow::Cow::Borrowed(
-                                                        "bytes://1.jpg",
-                                                    ),
-                                                    bytes: Bytes::from(d.clone()),
+                            ui.with_layout(
+                                egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true),
+                                |ui| {
+                                    let mut removed_index = None;
+                                    for (index, ele) in data.clip.iter().enumerate().rev() {
+                                        match ele {
+                                            Clip::Text(t) => {
+                                                ui.horizontal(|ui| {
+                                                    if ui.button("Copy").clicked() {
+                                                        println!("copy {}", t);
+                                                        let _ = self.ctx.set_text(t.clone());
+                                                    }
+                                                    if ui.link("del").clicked() {
+                                                        removed_index = Some(index);
+                                                    }
+                                                    ui.label(format!("{}", t));
                                                 });
-                                            });
+                                            }
+                                            Clip::Img(d) => {
+                                                ui.horizontal(|ui| {
+                                                    if ui.button("Copy").clicked() {
+                                                        println!("copy img",);
+                                                        let _ = self.ctx.set_image(
+                                                            RustImageData::from_bytes(d.as_slice())
+                                                                .unwrap(),
+                                                        );
+                                                    }
+                                                    if ui.link("rm").clicked() {
+                                                        removed_index = Some(index);
+                                                    }
+                                                    ui.image(ImageSource::Bytes {
+                                                        uri: std::borrow::Cow::Borrowed(
+                                                            "bytes://1.jpg",
+                                                        ),
+                                                        bytes: Bytes::from(d.clone()),
+                                                    });
+                                                });
+                                            }
+                                            _ => {}
                                         }
                                     }
-                                }
-                                if let Some(index) = removed_index {
-                                    data.clip.remove(index);
-                                }
-                            });
+                                    if let Some(index) = removed_index {
+                                        data.clip.remove(index);
+                                    }
+                                },
+                            );
                         });
                 }
                 Err(_) => {
                     println!("update fial");
                 }
             }
-            // ui.image(egui::include_image!(
-            //     "../../../crates/egui/assets/ferris.png"
-            // ));
+            if sw {
+                self.switch_top(ctx);
+            }
         });
     }
 }
