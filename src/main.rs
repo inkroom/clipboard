@@ -129,7 +129,7 @@ fn main() -> eframe::Result {
     let tray_c = _tray_icon.clone();
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([400.0, 500.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([400.0, 500.0]).with_taskbar(false),
         ..Default::default()
     };
 
