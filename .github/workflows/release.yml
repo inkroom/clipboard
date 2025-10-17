@@ -27,12 +27,27 @@ jobs:
           cargo build --release && cp target/release/clip ./out/clip-mac-arm
       - name: Bundle
         run: |
+          echo "::group::Install Bundle"
           cargo install cargo-bundle
-          CARGO_BUNDLE_SKIP_BUILD=true cargo bundle -r -f osx
-          cd target/release/bundle/
           brew install create-dmg
+          echo "::endgroup::"
+
+          echo "::group::Bundle"
+          # 实现dock栏隐藏图标
+          echo "<key>LSUIElement</key>" > info.ext
+          echo "<true/>" >> info.ext
+          echo "" >> Cargo.toml
+          echo 'osx_info_plist_exts=["info.ext"]' >> Cargo.toml
+          CARGO_BUNDLE_SKIP_BUILD=true cargo bundle -r -f osx
+          tar -cvf clip.tar target/release/bundle/osx/clip.app
+          mv clip.tar out/
+          echo "::endgroup::"
+
+          echo "::group::Package Dmg"
+          cd target/release/bundle/
           create-dmg --volname "Clip Installer" --window-pos 200 120 --window-size 800 400 --icon-size 100 --icon "clip.app" 200 190 --app-drop-link 600 185 --hide-extension "clip.app" clip.dmg "osx"
           mv clip.dmg ../../../out
+          echo "::endgroup::"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
