@@ -173,6 +173,10 @@ impl Data {
         self.window_visble = !self.window_visble;
         self.ctx
             .send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visble));
+        if self.window_visble{
+            // 获取焦点
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
     }
     fn switch_top(&mut self) {
         let mut flag = self.is_top;
