@@ -15,8 +15,5 @@
 			]
 		}
 	},
-	"containerEnv":{"DISPLAY":":1","VNCPASS":"clip"},
-	"onCreateCommand":
-"cargo new clip"
-	
+	"containerEnv":{"DISPLAY":":1","VNCPASS":"clip"}
 }

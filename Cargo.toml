@@ -2,6 +2,7 @@
 name = "clip"
 version = "0.1.0"
 edition = "2024"
+description="a gui clipboard"
 
 [dependencies]
 clipboard-rs = "0.3.0"
@@ -12,3 +13,9 @@ font-kit = "0.14.3"
 
 image = "0.25.8"
 tray-icon = "0.21.1"
+
+
+[package.metadata.bundle]
+identifier="cn.inkroom.clipboard"
+icon = ["src/favicon.ico"]
+#resources=["src"]
