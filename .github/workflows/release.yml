@@ -29,6 +29,10 @@ jobs:
         run: |
           cargo install cargo-bundle
           CARGO_BUNDLE_SKIP_BUILD=true cargo bundle -r -f osx
+          tar -cvf clip.tar target/release/bundle/osx/clip.app
+          mv clip.tar out/
+          # 实现dock栏隐藏图标
+          sed -i '' 's@<dict>@<dict><key>LSUIElement</key><true/>@' target/release/bundle/osx/clip.app/Contents/Info.plist
           cd target/release/bundle/
           brew install create-dmg
           create-dmg --volname "Clip Installer" --window-pos 200 120 --window-size 800 400 --icon-size 100 --icon "clip.app" 200 190 --app-drop-link 600 185 --hide-extension "clip.app" clip.dmg "osx"
