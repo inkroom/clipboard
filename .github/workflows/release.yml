@@ -39,8 +39,11 @@ jobs:
           echo "" >> Cargo.toml
           echo 'osx_info_plist_exts=["info.ext"]' >> Cargo.toml
           CARGO_BUNDLE_SKIP_BUILD=true cargo bundle -r -f osx
-          tar -cvf clip.tar target/release/bundle/osx/clip.app
-          mv clip.tar out/
+          curr=$(pwd)
+          cd target/release/bundle/osx/
+          tar -cvf clip.tar clip.app
+          cd "$curr"
+          mv target/release/bundle/osx/clip.tar out/
           echo "::endgroup::"
 
           echo "::group::Package Dmg"
@@ -98,7 +101,15 @@ jobs:
             # commit=$(git --no-pager log --pretty=format:"%H" | grep -B 1 $commit | head -n 1)
             echo "after-$commit"
             msg=$(git --no-pager log --pretty=format:"- [%s](https://github.com/${{ github.repository}}/commit/%H)" $commit..HEAD)
-            echo "$msg" > body.md
+
+            cat << 'EOF' > body.md
+              安装dmg后需要执行以下命令，否则会提示包已损坏
+              ```shell
+              sudo xattr -rd com.apple.quarantine /Applications/clip.app
+              ```
+            EOF
+            echo "" >> body.md
+            echo "$msg" >> body.md
             echo "tag=$new_tag" >> $GITHUB_OUTPUT
             # 如果直接指向master，release会落后一个commit
             # gh release create -n "$msg" --target $new_tag $(date +%Y%m%d) ./app/*
