@@ -6,6 +6,7 @@ description="a gui clipboard"
 
 [dependencies]
 clipboard-rs = "0.3.0"
+device_query = "4.0.1"
 eframe = "0.32.3"
 egui_extras = {version="0.32.3",  features = ["default", "image"] }
 font-kit = "0.14.3"

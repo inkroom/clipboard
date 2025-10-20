@@ -5,9 +5,8 @@ use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext,
     RustImageData, common::RustImage,
 };
-use eframe::egui::{self, ImageSource, ScrollArea, load::Bytes};
+use eframe::egui::{self, load::Bytes, ImageSource, Pos2, ScrollArea};
 use std::{
-    fmt::format,
     ops::Deref,
     sync::{
         Arc, Mutex,
@@ -129,7 +128,9 @@ fn main() -> eframe::Result {
     let tray_c = _tray_icon.clone();
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([400.0, 500.0]).with_taskbar(false),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([400.0, 500.0])
+            .with_taskbar(false),
         ..Default::default()
     };
 
@@ -173,7 +174,7 @@ impl Data {
         self.window_visble = !self.window_visble;
         self.ctx
             .send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visble));
-        if self.window_visble{
+        if self.window_visble {
             // 获取焦点
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
@@ -227,6 +228,7 @@ impl ClipboardApp {
         res.add_font(cc);
         res.clip_msg_listen(rx, Arc::clone(&c));
         res.tray_listen(Arc::clone(&c));
+        res.hotkey_listen(Arc::clone(&c));
         res
     }
 
@@ -262,6 +264,42 @@ impl ClipboardApp {
                 }
             }
         });
+    }
+
+    fn hotkey_listen(&self, data: Arc<Mutex<Data>>) {
+        use device_query::{DeviceEvents, DeviceEventsHandler, DeviceQuery, DeviceState, Keycode};
+        match DeviceState::checked_new() {
+            Some(device_state) => {
+                let event_handler = DeviceEventsHandler::new(std::time::Duration::from_millis(10))
+                    .expect("无法初始化事件处理器");
+                let key_up = event_handler.on_key_down(move |key: &Keycode| {
+                    // println!("按键释放: {:?}", key);
+                    let keys = device_state.get_keys();
+                    if (keys.contains(&Keycode::LControl) || keys.contains(&Keycode::RControl))
+                        && (keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift))
+                        && key == &Keycode::A
+                    {
+                        if let Ok(mut s) = data.lock() {
+                            // 修改窗口位置
+                            let mouse = device_state.get_mouse();
+                            
+                            let rect = s.ctx.screen_rect();
+                            let x = (mouse.coords.0 as f32) -  rect.max.x / 2.0;
+                            let y = (mouse.coords.1 as f32) - rect.max.y / 2.0;
+                            s.ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(Pos2::new(x,y)));
+
+                            s.switch_visible();
+                        }
+                    }
+                });
+                // key_up 被回收事件就会被remove，所以这里直接泄漏，保证不会被drop
+                // 否则就要保证生命周期，但是放到结构体里类型很难写
+                Box::leak(Box::new(key_up));
+            }
+            None => {
+                eprintln!("需要打开权限");
+            }
+        }
     }
 
     fn tray_listen(&self, data: Arc<Mutex<Data>>) {
