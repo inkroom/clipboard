@@ -38,7 +38,7 @@ jobs:
           echo "<true/>" >> info.ext
           echo "" >> Cargo.toml
           echo 'osx_info_plist_exts=["info.ext"]' >> Cargo.toml
-          CARGO_BUNDLE_SKIP_BUILD=true cargo bundle -r -f osx
+          cargo bundle -r -f osx --features "pkg" 
           curr=$(pwd)
           cd target/release/bundle/osx/
           tar -cvf clip.tar clip.app
