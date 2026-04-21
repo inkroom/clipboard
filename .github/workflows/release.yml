@@ -10,15 +10,15 @@ on:
       - 'build.sh'
   workflow_dispatch:
 env:
-  RUST_VERSION: 1.90.0
+  RUST_VERSION: 1.95.0
 jobs:
   mac-m1:
     runs-on: macos-14
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Rust
-        uses: brndnmtthws/rust-action-rustup@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
          toolchain: ${{ env.RUST_VERSION }}
       - name: Build
@@ -64,7 +64,7 @@ jobs:
         packages: write
     steps:
         - name: Checkout repository
-          uses: actions/checkout@v5
+          uses: actions/checkout@v6
           with:
            fetch-tags: true
            fetch-depth: 0

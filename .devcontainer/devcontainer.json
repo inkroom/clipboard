@@ -3,7 +3,7 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-	"forwardPorts":[5901],
+	"forwardPorts":[5946],
 	"overrideCommand":false,
 	"customizations": {
 		"vscode": {
@@ -15,5 +15,5 @@
 			]
 		}
 	},
-	"containerEnv":{"DISPLAY":":1","VNCPASS":"clip"}
+	"containerEnv":{"DISPLAY":":1","VNCPASS":"clip","VNCPORT":"5946","VNCNAME":"clip"}
 }

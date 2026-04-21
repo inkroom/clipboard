@@ -5,8 +5,9 @@ use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext,
     RustImageData, common::RustImage,
 };
+use device_query::device_state;
 use eframe::egui::{self, IconData, ImageSource, Pos2, ScrollArea, load::Bytes};
-#[cfg(feature="print")]
+#[cfg(feature = "print")]
 use log::{error, info};
 use std::{
     ops::Deref,
@@ -117,17 +118,17 @@ impl ClipboardHandler for Manager {
             }
         }
 
-        if let Ok(img) = self.ctx.get_image()
-            && !img.is_empty()
-            && let Ok(data) = img.to_jpeg()
-        {
-            match self.tx.send(Clip::Img(data.get_bytes().to_vec())) {
-                Ok(_) => {}
-                Err(e) => {
-                    s_error!("send fail {:?}", e);
-                }
-            };
-        }
+        // if let Ok(img) = self.ctx.get_image()
+        //     && !img.is_empty()
+        //     && let Ok(data) = img.to_jpeg()
+        // {
+        //     match self.tx.send(Clip::Img(data.get_bytes().to_vec())) {
+        //         Ok(_) => {}
+        //         Err(e) => {
+        //             s_error!("send fail {:?}", e);
+        //         }
+        //     };
+        // }
     }
 }
 fn load_icon() -> tray_icon::Icon {
@@ -311,14 +312,17 @@ mod custom_log {
         }
 
         // }
+        #[cfg(feature = "print")]
+        {
+            let mut s = env_logger::builder();
+            s.default_format()
+                .parse_default_env()
+                .format(|buf, record| writeln!(buf, "{}: {}", time_format(), record.args()))
+                .target(env_logger::Target::Pipe(Box::new(Writer::new())));
 
-        let mut s = env_logger::builder();
-        s.default_format()
-            .parse_default_env()
-            .format(|buf, record| writeln!(buf, "{}: {}", time_format(), record.args()))
-            .target(env_logger::Target::Pipe(Box::new(Writer::new())));
+            s.init();
+        }
 
-        s.init();
         Ok(())
     }
 }
@@ -425,6 +429,13 @@ impl Data {
                 ));
         }
     }
+
+    fn push(&mut self, clip:Clip){
+        self.clip.push(clip);
+        if self.clip.len() > 100 {
+            self.clip.remove(0);
+        }
+    }
 }
 
 struct ClipboardApp {
@@ -477,7 +488,7 @@ impl ClipboardApp {
                         match data.lock() {
                             Ok(mut s) => {
                                 if !s.clip.iter().any(|f| r == f) {
-                                    s.clip.push(r);
+                                    s.push(r);
                                     s_info!("修改");
                                     s.ctx.request_repaint();
                                 }
@@ -499,41 +510,37 @@ impl ClipboardApp {
 
     fn hotkey_listen(&self, data: Arc<Mutex<Data>>) {
         use device_query::{DeviceEvents, DeviceEventsHandler, DeviceQuery, DeviceState, Keycode};
-        match DeviceState::checked_new() {
-            Some(device_state) => {
-                let event_handler = DeviceEventsHandler::new(std::time::Duration::from_millis(10))
-                    .expect("无法初始化事件处理器");
-                let key_up = event_handler.on_key_down(move |key: &Keycode| {
-                    // s_info!("按键释放: {:?}", key);
-                    let keys = device_state.get_keys();
-                    if (keys.contains(&Keycode::LControl) || keys.contains(&Keycode::RControl))
-                        && (keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift))
-                        && key == &Keycode::A
-                    {
-                        if let Ok(mut s) = data.lock() {
-                            // 修改窗口位置
-                            let mouse = device_state.get_mouse();
+        let event_handler = DeviceEventsHandler::new(std::time::Duration::from_millis(10))
+            .expect("无法初始化事件处理器");
+        let key_up = event_handler.on_key_down(move |key: &Keycode| {
+            // s_info!("按键释放: {:?}", key);
 
-                            let rect = s.ctx.screen_rect();
-                            let x = (mouse.coords.0 as f32) - rect.max.x / 2.0;
-                            let y = (mouse.coords.1 as f32) - rect.max.y / 2.0;
-                            s.ctx
-                                .send_viewport_cmd(egui::ViewportCommand::OuterPosition(
-                                    Pos2::new(x, y),
-                                ));
+            if let Some(device_state) = DeviceState::checked_new() {
+                let keys = device_state.get_keys();
+                if (keys.contains(&Keycode::LControl) || keys.contains(&Keycode::RControl))
+                    && (keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift))
+                    && key == &Keycode::A
+                {
+                    if let Ok(mut s) = data.lock() {
+                        // 修改窗口位置
+                        let mouse = device_state.get_mouse();
 
-                            s.switch_visible(true);
-                        }
+                        let rect = s.ctx.screen_rect();
+                        let x = (mouse.coords.0 as f32) - rect.max.x / 2.0;
+                        let y = (mouse.coords.1 as f32) - rect.max.y / 2.0;
+                        s.ctx
+                            .send_viewport_cmd(egui::ViewportCommand::OuterPosition(Pos2::new(
+                                x, y,
+                            )));
+
+                        s.switch_visible(true);
                     }
-                });
-                // key_up 被回收事件就会被remove，所以这里直接泄漏，保证不会被drop
-                // 否则就要保证生命周期，但是放到结构体里类型很难写
-                Box::leak(Box::new(key_up));
+                }
             }
-            None => {
-                s_error!("需要打开权限");
-            }
-        }
+        });
+        // key_up 被回收事件就会被remove，所以这里直接泄漏，保证不会被drop
+        // 否则就要保证生命周期，但是放到结构体里类型很难写
+        Box::leak(Box::new(key_up));
     }
 
     fn tray_listen(&self, data: Arc<Mutex<Data>>) {
@@ -691,7 +698,7 @@ impl eframe::App for ClipboardApp {
                                                                 .unwrap(),
                                                         );
                                                     }
-                                                    if ui.link("rm").clicked() {
+                                                    if ui.link("del").clicked() {
                                                         removed_index = Some(index);
                                                     }
                                                     ui.image(ImageSource::Bytes {

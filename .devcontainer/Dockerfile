@@ -20,8 +20,8 @@ ENV TZ=Asia/Shanghai
 
 RUN dpkgArch="$(dpkg --print-architecture)"; \
     case "${dpkgArch##*-}" in \
-        amd64) sed -i "s@http://.*archive.ubuntu.com@http://mirrors.huaweicloud.com@g" /etc/apt/sources.list && sed -i "s@http://.*security.ubuntu.com@http://mirrors.huaweicloud.com@g" /etc/apt/sources.list ;; \
-        arm64) sed -i "s@http://ports.ubuntu.com@https://mirrors.tuna.tsinghua.edu.cn@g" /etc/apt/sources.list  ;; \
+        amd64) sed -i "s@http://.*archive.ubuntu.com@https://mirror.sjtu.edu.cn@g" /etc/apt/sources.list && sed -i "s@http://.*security.ubuntu.com@https://mirror.sjtu.edu.cn@g" /etc/apt/sources.list ;; \
+        arm64) sed -i "s@http://ports.ubuntu.com@https://mirror.sjtu.edu.cn@g" /etc/apt/sources.list  ;; \
         *) echo >&2 "unsupported architecture: ${dpkgArch}" ;; \
     esac; apt update -y
 RUN apt install -y git zsh vim fonts-wqy-zenhei && git config --global core.editor vim
@@ -53,7 +53,7 @@ RUN echo "export CARGO_HOME=${CARGO_HOME}" >> /etc/profile \
     && echo "export RUSTUP_HOME=${RUSTUP_HOME}" >> /root/.zshrc \
     && echo "export RUST_VERSION=$v" >> /root/.zshrc \
     && echo "export PATH=${PATH}" >> /root/.zshrc
-ENV VNCNAME "novel"
-RUN sed -i "s@-fg@-fg -desktop ${VNCNAME}@g" /app/tiger.sh
+
 RUN sh /app/scripts/prepare_firefox_ppa.sh && apt update -y && apt install -y firefox
-RUN apt install -y gcc g++ make pkg-config libssl-dev unzip libxkbcommon-dev libxkbcommon-x11-dev libfreetype6-dev libfontconfig1-dev
+RUN apt install -y gcc g++ make pkg-config libssl-dev unzip libxkbcommon-dev libxkbcommon-x11-dev libfreetype6-dev libfontconfig1-dev libgio-cil librust-glib-sys-dev librust-glib-sys-dev librust-atk-dev libx11-dev libpango1.0-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev librust-gdk-pixbuf-dev librust-gdk-sys-dev libxdo-dev
+RUN sed -i "s@VNCPORT@VNCD@g;s@-fg@-fg -desktop \$\{VNCNAME\} -rfbport \$\{VNCPORT\}@g" /app/tiger.sh
